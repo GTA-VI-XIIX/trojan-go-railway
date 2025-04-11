@@ -1,14 +1,26 @@
-FROM alpine:latest
+FROM golang:alpine AS builder
+WORKDIR /
+ARG REF
+RUN apk add git make &&\
+    git clone https://github.com/p4gefau1t/trojan-go.git
+RUN if [[ -z "${REF}" ]]; then \
+        echo "No specific commit provided, use the latest one." \
+    ;else \
+        echo "Use commit ${REF}" &&\
+        cd trojan-go &&\
+        git checkout ${REF} \
+    ;fi
+RUN cd trojan-go &&\
+    make &&\
+    wget https://github.com/v2fly/domain-list-community/raw/release/dlc.dat -O build/geosite.dat &&\
+    wget https://github.com/v2fly/geoip/raw/release/geoip.dat -O build/geoip.dat &&\
+    wget https://github.com/v2fly/geoip/raw/release/geoip-only-cn-private.dat -O build/geoip-only-cn-private.dat
 
-RUN apk add --no-cache curl bash && \
-    curl -L -o /trojan-go.zip https://github.com/p4gefau1t/trojan-go/releases/latest/download/trojan-go-linux-amd64.zip && \
-    mkdir /trojan-go && \
-    unzip /trojan-go.zip -d /trojan-go && \
-    chmod +x /trojan-go/trojan-go
+FROM alpine
+WORKDIR /
+RUN apk add --no-cache tzdata ca-certificates
+COPY --from=builder /trojan-go/build /usr/local/bin/
+COPY --from=builder /trojan-go/example/server.json /etc/trojan-go/config.json
 
-COPY entrypoint.sh /entrypoint.sh
-COPY config /config
-
-RUN chmod +x /entrypoint.sh
-
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/trojan-go", "-config"]
+CMD ["/etc/trojan-go/config.json"]
